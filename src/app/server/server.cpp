@@ -9,10 +9,8 @@
 #include <arpa/inet.h>
 #include <dirent.h>
 #include <fcntl.h>
-
-#define PORT 6120
-#define BACKLOG 20
-#define BUFFER_SIZE 4096
+#include "../common/include/env_config.hpp"
+#include "./include/constants.hpp"
 
 std::string ls(std::string directory)
 {
@@ -38,12 +36,16 @@ std::string ls(std::string directory)
 
 int main()
 {
+    const int PORT = EnvConfig::getServerPort();
+    const int BUFFER_SIZE = EnvConfig::getServerBufferSize();
+    const int BACKLOG = EnvConfig::getServerBacklogSize();
 
-    struct stat st = {0};
-    if (stat("./store", &st) == -1)
+    struct stat st;
+    memset(&st, 0, sizeof(st));
+    if (stat(ServerConstants::STORE_DIR.c_str(), &st) == -1)
     {
 
-        mkdir("./store", 0700);
+        mkdir(ServerConstants::STORE_DIR.c_str(), 0700);
     }
 
     int sockfd = socket(AF_INET, SOCK_STREAM, 0); // server fd
@@ -60,7 +62,7 @@ int main()
     serverAddr.sin_port = htons(PORT);
     serverAddr.sin_addr.s_addr = INADDR_ANY;
 
-    int yes = 1;
+    int yes = ServerConstants::SOCKET_OPTION_YES;
 
     if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1)
     { // to avoid "port already in use" error
@@ -116,7 +118,7 @@ int main()
         std::cout << "Received from client: \n";
         std::cout << "Name: " << clientname << "\n";
         // std::cout<<"Message from client: "<<message<<"\n";
-        std::string folderdir = "./store/" + clientname;
+        std::string folderdir = ServerConstants::STORE_DIR + "/" + clientname;
         if (stat(folderdir.c_str(), &st) == -1)
         {
 
@@ -142,7 +144,7 @@ int main()
 
             if (option == "ls")
             {
-                std::string directory = std::string("./store/") + clientname;
+                std::string directory = std::string(ServerConstants::STORE_DIR + "/") + clientname;
                 std::string files = ls(directory);
 
                 if (files.empty())
@@ -150,7 +152,7 @@ int main()
                     files = "Empty directory";
                 }
 
-                if (files.size() < BUFFER_SIZE)
+                if (files.size() < static_cast<std::string::size_type>(BUFFER_SIZE))
                 {
                     strcpy(buffer, files.c_str());
                 }
@@ -208,9 +210,14 @@ int main()
                 while (remaining > 0)
                 {
                     bytesRecv = recv(clientfd, buffer, std::min(remaining, BUFFER_SIZE), 0);
-                    if (bytesRecv <= 0)
+                    if (bytesRecv == 0)
                     {
-                        std::cerr << "Client disconnected while transferring file: " << std::strerror(errno) << "\n";
+                        std::cerr << "Client disconnected while transferring file\n";
+                        break;
+                    }
+                    if (bytesRecv < 0)
+                    {
+                        std::cerr << "Error receiving file data: " << std::strerror(errno) << "\n";
                         close(filefd);
                         break;
                     }
@@ -224,7 +231,6 @@ int main()
             else
             {
             }
-
         }
         close(clientfd);
     }
